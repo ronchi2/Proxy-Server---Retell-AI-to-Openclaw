@@ -37,6 +37,7 @@ wss.on('connection', (retellWs) => {
     // Step 3: The Challenge-Response Handshake
     openclawWs.on('message', (data) => {
         const rawMessage = data.toString();
+        console.log('[OpenClaw -> Proxy] Received:', rawMessage);
         
         if (!isAuthenticated) {
             try {
@@ -48,24 +49,33 @@ wss.on('connection', (retellWs) => {
                         "method": "connect", 
                         "params": {
                             "auth": {
-                                "token": process.env.MYCLAW_API_KEY
+                                "token": (process.env.MYCLAW_API_KEY || '').trim()
                             }
                         }
                     };
                     
+                    console.log('[Proxy -> OpenClaw] Sending:', JSON.stringify(authPayload));
                     openclawWs.send(JSON.stringify(authPayload));
-                    isAuthenticated = true;
-                    console.log('Authentication sent. Routing audio JSON payloads now.');
+                    
+                    // We will NOT set isAuthenticated = true yet, nor flush the queue.
+                    // We need to wait and see if OpenClaw sends a success response or closes!
+                    return; 
+                }
 
-                    // Flush queued messages from Retell to ensure no audio events are lost
+                // If we get here, OpenClaw sent something else while we were not authenticated.
+                // Could be the success response!
+                if (parsedMessage.event === 'connect.success' || parsedMessage.result || parsedMessage.status === 'success') {
+                    console.log('Received success response from OpenClaw! Now routing audio...');
+                    isAuthenticated = true;
                     while (retellMessageQueue.length > 0) {
                         const queuedData = retellMessageQueue.shift();
+                        // console.log('[Proxy -> OpenClaw] Flushing queued Retell message...');
                         openclawWs.send(queuedData);
                     }
-                    return; // Don't forward the challenge event to Retell
+                    return;
                 }
             } catch (error) {
-                // Ignore parsing errors during the handshake phase
+                console.log('Error parsing OpenClaw message during auth phase:', error.message);
             }
         }
 
