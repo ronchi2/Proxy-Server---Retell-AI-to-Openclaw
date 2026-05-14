@@ -47,6 +47,15 @@ wss.on('connection', (retellWs) => {
 
     openclawWs.on('open', () => {
         console.log('Successfully connected to OpenClaw WebSocket');
+        // The OpenClaw Gateway strictly requires a connect frame right after the TCP/WS handshake finishes
+        const connectFrame = {
+            id: 1,
+            connect: {
+                token: cleanApiKey
+            }
+        };
+        console.log('Sending connect frame to OpenClaw...');
+        openclawWs.send(JSON.stringify(connectFrame));
     });
 
     openclawWs.on('message', (data) => {
