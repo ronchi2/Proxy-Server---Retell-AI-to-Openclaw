@@ -24,70 +24,79 @@ wss.on('connection', (retellWs) => {
     console.log('Retell AI connected via WebSocket');
 
     let currentResponseId = null;
+    let isOpenClawAuthenticated = false;
 
-    // Connect to OpenClaw WS as a client
-    // Ensure no hidden newlines in the URL and API key break the HTTP handshake headers
+    // Clean variables to prevent header breaking
     const cleanUrl = OPENCLAW_WSS_URL.trim();
     const cleanApiKey = MYCLAW_API_KEY.trim();
 
-    // Determine the Origin, as some strict servers require it
-    let originStr = 'http://localhost';
-    try {
-        const parsedUrl = new URL(cleanUrl);
-        originStr = `${parsedUrl.protocol === 'wss:' ? 'https:' : 'http:'}//${parsedUrl.host}`;
-    } catch(e) {}
-
+    // Connect to OpenClaw WS as a client
     console.log(`Connecting to OpenClaw WS at ${cleanUrl}...`);
+    
+    // Using explicit options to prevent ws subprotocol parsing issues
     const openclawWs = new WebSocket(cleanUrl, [], {
         headers: {
-            'user-agent': 'Node.js/365Digital-Proxy',
-            'authorization': `Bearer ${cleanApiKey}`
+            'user-agent': 'Node.js/365Digital-Proxy'
         }
     });
 
+    // 1. Do NOT send anything immediately on the ws.on('open') event.
     openclawWs.on('open', () => {
-        console.log('Successfully connected to OpenClaw WebSocket');
-        // The OpenClaw Gateway strictly requires a connect frame right after the TCP/WS handshake finishes
-        const connectFrame = {
-            id: 1,
-            connect: {
-                token: cleanApiKey
-            }
-        };
-        console.log('Sending connect frame to OpenClaw...');
-        openclawWs.send(JSON.stringify(connectFrame));
+        console.log('Successfully connected to OpenClaw WebSocket. Waiting for connect.challenge...');
     });
 
+    // 2. Listen to incoming messages from OpenClaw for the challenge
     openclawWs.on('message', (data) => {
         try {
             const rawResponse = data.toString();
-            console.log('Received message from OpenClaw WS:', rawResponse);
+            let openClawData;
             
-            let generatedText = rawResponse; // Default to raw string if not JSON
             try {
-                const openClawData = JSON.parse(rawResponse);
-                // Try multiple common JSON formats to extract generated text
-                if (openClawData.choices && openClawData.choices.length > 0) {
-                     generatedText = openClawData.choices[0].message?.content || openClawData.choices[0].delta?.content || "";
-                } else if (openClawData.response) {
-                     generatedText = openClawData.response;
-                } else if (openClawData.content) {
-                     generatedText = openClawData.content;
-                }
+                openClawData = JSON.parse(rawResponse);
             } catch (e) {
-                // Could not parse as JSON, keeping it as raw string
+                // If it's not JSON, skip parsing
+                return;
+            }
+
+            // Challenge-Response Handshake
+            if (openClawData.event === 'connect.challenge') {
+                console.log('Received connect.challenge from OpenClaw! Sending auth response...');
+                
+                const connectResponse = {
+                    method: "connect",
+                    params: {
+                        auth: {
+                            token: cleanApiKey
+                        }
+                    }
+                };
+                
+                openclawWs.send(JSON.stringify(connectResponse));
+                isOpenClawAuthenticated = true;
+                console.log('Authentication frame sent! Proxy is now open for Retell events.');
+                return;
+            }
+
+            // Handling actual LLM responses after authentication
+            let generatedText = "";
+            if (openClawData.choices && openClawData.choices.length > 0) {
+                 generatedText = openClawData.choices[0].message?.content || openClawData.choices[0].delta?.content || "";
+            } else if (openClawData.response) {
+                 generatedText = openClawData.response;
+            } else if (openClawData.content) {
+                 generatedText = openClawData.content;
             }
 
             if (currentResponseId !== null && generatedText.trim()) {
                 const retellResponse = {
                     response_id: currentResponseId,
                     content: generatedText,
-                    content_complete: true, // adjust if OpenClaw actually streams tokens
+                    content_complete: true,
                     end_call: false
                 };
 
                 retellWs.send(JSON.stringify(retellResponse));
-                console.log('Sent response back to Retell.');
+                console.log('Sent generated text response back to Retell.');
             }
         } catch (error) {
             console.error('Error handling OpenClaw message:', error);
@@ -107,16 +116,20 @@ wss.on('connection', (retellWs) => {
         try {
             const message = JSON.parse(data.toString());
             
-            // Log the event type without spamming transcripts
-            if (message.event) {
+            if (message.event && message.event !== 'media') { // Ignore media spam in logs
                  console.log('Received event from Retell:', message.event);
             }
 
-            // 1. Listen for response_required event
+            // 3. Only after sending this specific connect frame should the proxy start forwarding
+            if (!isOpenClawAuthenticated) {
+                console.log('OpenClaw not yet authenticated. Holding off on forwarding Retell event.');
+                return;
+            }
+
+            // Process response_required events to get the transcript
             if (message.event === 'response_required') {
                 currentResponseId = message.response_id;
                 
-                // 2. Extract the latest user transcript
                 let latestUserText = '';
                 
                 if (message.transcript && Array.isArray(message.transcript)) {
@@ -138,9 +151,9 @@ wss.on('connection', (retellWs) => {
                     return;
                 }
 
-                // 3. Send text string to OpenClaw WebSocket
+                // Send text string to OpenClaw WebSocket
                 if (openclawWs.readyState === WebSocket.OPEN) {
-                    console.log('Sending text to OpenClaw WS...');
+                    console.log('Forwarding extracted text to OpenClaw WS...');
                     openclawWs.send(JSON.stringify({
                         messages: [
                             { role: 'user', content: latestUserText }
