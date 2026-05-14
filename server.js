@@ -26,12 +26,24 @@ wss.on('connection', (retellWs) => {
     let currentResponseId = null;
 
     // Connect to OpenClaw WS as a client
-    console.log(`Connecting to OpenClaw WS at ${OPENCLAW_WSS_URL}...`);
-    const openclawWs = new WebSocket(OPENCLAW_WSS_URL, {
+    // Ensure no hidden newlines in the URL and API key break the HTTP handshake headers
+    const cleanUrl = OPENCLAW_WSS_URL.trim();
+    const cleanApiKey = MYCLAW_API_KEY.trim();
+
+    // Determine the Origin, as some strict servers require it
+    let originStr = 'http://localhost';
+    try {
+        const parsedUrl = new URL(cleanUrl);
+        originStr = `${parsedUrl.protocol === 'wss:' ? 'https:' : 'http:'}//${parsedUrl.host}`;
+    } catch(e) {}
+
+    console.log(`Connecting to OpenClaw WS at ${cleanUrl}...`);
+    const openclawWs = new WebSocket(cleanUrl, {
         headers: {
             'User-Agent': 'Node.js/365Digital-Proxy',
-            'Authorization': `Bearer ${MYCLAW_API_KEY}`
-        }
+            'Authorization': `Bearer ${cleanApiKey}`
+        },
+        origin: originStr
     });
 
     openclawWs.on('open', () => {
