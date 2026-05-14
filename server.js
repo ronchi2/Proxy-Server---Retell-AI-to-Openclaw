@@ -38,12 +38,11 @@ wss.on('connection', (retellWs) => {
     } catch(e) {}
 
     console.log(`Connecting to OpenClaw WS at ${cleanUrl}...`);
-    const openclawWs = new WebSocket(cleanUrl, {
+    const openclawWs = new WebSocket(cleanUrl, [], {
         headers: {
-            'User-Agent': 'Node.js/365Digital-Proxy',
-            'Authorization': `Bearer ${cleanApiKey}`
-        },
-        origin: originStr
+            'user-agent': 'Node.js/365Digital-Proxy',
+            'authorization': `Bearer ${cleanApiKey}`
+        }
     });
 
     openclawWs.on('open', () => {
