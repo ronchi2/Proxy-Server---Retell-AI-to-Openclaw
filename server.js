@@ -1,20 +1,120 @@
-"I need you to rewrite the server.js WebSocket proxy logic that connects to OpenClaw. We are hitting a WAF block (ua=n/a) and failing the OpenClaw challenge-response authentication.
+const { WebSocketServer, WebSocket } = require('ws');
+const http = require('http');
 
-Rewrite the code to follow this EXACT strict sequence. Do not deviate or strip out any of these steps:
+const PORT = process.env.PORT || 8080;
 
-Step 1: The Initial Connection (Bypass the WAF)
-When initializing the new WebSocket(process.env.OPENCLAW_WSS_URL), you MUST include the headers object as the second argument, passing a valid User-Agent.
-Example: { headers: { 'User-Agent': 'Node.js/365Digital-Proxy' } }
+// Create a basic HTTP server to handle health checks
+const server = http.createServer((req, res) => {
+    if (req.url === '/health' || req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Retell AI - OpenClaw Proxy Server is running.');
+    } else {
+        res.writeHead(404);
+        res.end();
+    }
+});
 
-Step 2: The Silent Open
-On the ws.on('open') event, do NOT send any authentication tokens. Log that the connection is open, but wait silently.
+const wss = new WebSocketServer({ server });
 
-Step 3: The Challenge-Response Handshake
-Listen to incoming messages from OpenClaw. Parse the incoming JSON.
-If the parsed message has event === 'connect.challenge', you must immediately send back this EXACT JSON structure to authenticate:
-{"method": "connect", "params": {"auth": {"token": process.env.MYCLAW_API_KEY}}}
+wss.on('connection', (retellWs) => {
+    console.log('Retell AI connected via WebSocket');
 
-Step 4: The Audio Pipeline
-Only after the challenge has been successfully answered should the proxy begin routing the audio JSON payloads from Retell AI to OpenClaw, and vice versa.
+    let isAuthenticated = false;
+    let retellMessageQueue = [];
 
-Give me the complete, updated server.js code."
+    // Step 1: The Initial Connection (Bypass the WAF)
+    // MUST include the headers object as the second argument, passing a valid User-Agent.
+    const openclawWs = new WebSocket(process.env.OPENCLAW_WSS_URL, {
+        headers: { 'User-Agent': 'Node.js/365Digital-Proxy' }
+    });
+
+    // Step 2: The Silent Open
+    // Do NOT send any authentication tokens. Log that the connection is open, but wait silently.
+    openclawWs.on('open', () => {
+        console.log('OpenClaw WebSocket connection is open. Waiting silently for challenge...');
+    });
+
+    // Step 3: The Challenge-Response Handshake
+    openclawWs.on('message', (data) => {
+        const rawMessage = data.toString();
+        
+        if (!isAuthenticated) {
+            try {
+                const parsedMessage = JSON.parse(rawMessage);
+                if (parsedMessage.event === 'connect.challenge') {
+                    console.log('Received connect.challenge from OpenClaw. Sending auth response...');
+                    
+                    const authPayload = {
+                        "method": "connect", 
+                        "params": {
+                            "auth": {
+                                "token": process.env.MYCLAW_API_KEY
+                            }
+                        }
+                    };
+                    
+                    openclawWs.send(JSON.stringify(authPayload));
+                    isAuthenticated = true;
+                    console.log('Authentication sent. Routing audio JSON payloads now.');
+
+                    // Flush queued messages from Retell to ensure no audio events are lost
+                    while (retellMessageQueue.length > 0) {
+                        const queuedData = retellMessageQueue.shift();
+                        openclawWs.send(queuedData);
+                    }
+                    return; // Don't forward the challenge event to Retell
+                }
+            } catch (error) {
+                // Ignore parsing errors during the handshake phase
+            }
+        }
+
+        // Step 4: The Audio Pipeline (vice versa - OpenClaw to Retell)
+        // Only route after the challenge is successfully answered
+        if (isAuthenticated) {
+            if (retellWs.readyState === WebSocket.OPEN) {
+                retellWs.send(data);
+            }
+        }
+    });
+
+    openclawWs.on('error', (error) => {
+        console.error('OpenClaw WebSocket error:', error.message);
+    });
+
+    openclawWs.on('close', (code, reason) => {
+        console.log(`OpenClaw WebSocket closed: Code ${code}, Reason: ${reason}`);
+        if (retellWs.readyState === WebSocket.OPEN) {
+            retellWs.close();
+        }
+    });
+
+    // Step 4: The Audio Pipeline (Retell to OpenClaw)
+    retellWs.on('message', (data) => {
+        // Only route after the challenge is answered
+        if (!isAuthenticated) {
+            // Queue messages while waiting for OpenClaw to authenticate
+            retellMessageQueue.push(data);
+            return;
+        }
+
+        if (openclawWs.readyState === WebSocket.OPEN) {
+            openclawWs.send(data);
+        }
+    });
+
+    retellWs.on('close', () => {
+        console.log('Retell AI disconnected');
+        if (openclawWs.readyState === WebSocket.OPEN) {
+            openclawWs.close();
+        }
+    });
+    
+    retellWs.on('error', (error) => {
+        console.error('Retell WebSocket error:', error.message);
+    });
+});
+
+server.listen(PORT, () => {
+    console.log(`WebSocket Server listening on port ${PORT}`);
+});
