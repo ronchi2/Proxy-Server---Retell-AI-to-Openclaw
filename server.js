@@ -123,4 +123,47 @@ wss.on('connection', (retellWs) => {
     });
 
     // --- RETELL -> OPENCLAW TRANSLATION LAYER ---
-    retellWs.on('message', (data) =>
+    retellWs.on('message', (data) => {
+        let parsedData;
+        try { parsedData = JSON.parse(data.toString()); } catch (e) { return; }
+
+        if (parsedData.event === 'response_required') {
+            currentResponseId = parsedData.response_id;
+            
+            // Extract the human speech from Retell's transcript array
+            let humanSpeech = "";
+            if (parsedData.transcript && parsedData.transcript.length > 0) {
+                const lastMsg = parsedData.transcript[parsedData.transcript.length - 1];
+                if (lastMsg.role === 'user') humanSpeech = lastMsg.content;
+            }
+
+            if (!humanSpeech) return;
+
+            // Translate into an OpenClaw Gateway "Agent" Request
+            const openclawReq = {
+                type: "req",
+                id: `msg-${Date.now()}`,
+                method: "agent",
+                params: {
+                    text: humanSpeech
+                }
+            };
+
+            const payloadStr = JSON.stringify(openclawReq);
+
+            if (isAuthenticated && openclawWs.readyState === WebSocket.OPEN) {
+                openclawWs.send(payloadStr);
+                console.log(`>>> Sent Human Speech to OpenClaw: "${humanSpeech}"`);
+            } else {
+                retellMessageQueue.push(payloadStr);
+            }
+        }
+    });
+
+    retellWs.on('close', () => {
+        console.log('Retell AI disconnected');
+        if (openclawWs.readyState === WebSocket.OPEN) openclawWs.close();
+    });
+});
+
+server.listen(PORT, () => console.log(`WebSocket Server listening on port ${PORT}`));
