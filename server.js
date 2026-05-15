@@ -3,11 +3,11 @@ const http = require('http');
 
 const PORT = process.env.PORT || 8080;
 
-// Create a basic HTTP server to handle health checks
+// Create a basic HTTP server to handle Render health checks
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('Retell AI - OpenClaw Proxy Server is running.');
+        res.end('365Digital Proxy Server - Retell to OpenClaw is live.');
     } else {
         res.writeHead(404);
         res.end();
@@ -17,97 +17,94 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (retellWs) => {
-    console.log('Retell AI connected via WebSocket');
+    console.log('>>> Retell AI connected via WebSocket');
 
     let isAuthenticated = false;
     let retellMessageQueue = [];
-    let currentResponseId = 0; // Track this so we can translate back to Retell
+    let currentResponseId = 0; 
 
-    // Step 1: The Initial Connection (Bypass the WAF)
+    // Step 1: The Initial Connection (Bypass the WAF completely)
+    // We pass User-Agent AND Origin to ensure OpenClaw never throws a 1008 'ua=n/a' error.
     const openclawWs = new WebSocket(process.env.OPENCLAW_WSS_URL, {
-        headers: { 'User-Agent': 'Node.js/365Digital-Proxy' }
+        headers: { 
+            'User-Agent': 'Node.js/365Digital-Proxy',
+            'Origin': process.env.OPENCLAW_WSS_URL.replace('wss://', 'https://').replace('ws://', 'http://')
+        }
     });
 
     // Step 2: The Silent Open
     openclawWs.on('open', () => {
-        console.log('OpenClaw WebSocket connection is open. Waiting silently for challenge...');
+        console.log('>>> OpenClaw WebSocket connection is open. Waiting silently for challenge...');
     });
 
-    // Step 3 & 4: The Challenge-Response Handshake and Intelligent Filter
+    // Step 3 & 4: Challenge-Response & The Steel Trap Filter
     openclawWs.on('message', (data) => {
         const rawMessage = data.toString();
-        let parsedMessage;
+        let msg;
 
         try {
-            parsedMessage = JSON.parse(rawMessage);
+            msg = JSON.parse(rawMessage);
         } catch (error) {
             console.error('Error parsing OpenClaw message:', error.message);
             return;
         }
 
-        // --- INTERCEPT SYSTEM EVENTS ---
-        if (parsedMessage.event === 'connect.challenge') {
-            console.log('Received connect.challenge from OpenClaw. Sending auth response...');
-            
+        // --- INTERCEPT SYSTEM EVENTS & AUTHENTICATE ---
+        if (msg.event === 'connect.challenge') {
+            console.log('<<< Received connect.challenge. Sending token...');
             const authPayload = {
-                "method": "connect", 
-                "params": {
-                    "auth": {
-                        "token": (process.env.MYCLAW_API_KEY || '').trim()
+                method: "connect", 
+                params: {
+                    auth: {
+                        token: (process.env.MYCLAW_API_KEY || '').trim()
                     }
                 }
             };
-            
             openclawWs.send(JSON.stringify(authPayload));
-            return; // DO NOT FORWARD TO RETELL
+            return; // DROP: Do not send to Retell
         }
 
         // --- FILTER THE NOISE ---
-        if (
-            parsedMessage.event === 'connect.success' || 
-            parsedMessage.event === 'heartbeat' || 
-            parsedMessage.type === 'system' ||
-            parsedMessage.status === 'success'
-        ) {
-            if (parsedMessage.event === 'connect.success' || parsedMessage.status === 'success') {
-                console.log('Authentication successful! Now routing Retell events to OpenClaw.');
+        if (msg.event === 'connect.success' || msg.status === 'success' || msg.event === 'heartbeat' || msg.type === 'system') {
+            if (!isAuthenticated && (msg.event === 'connect.success' || msg.status === 'success')) {
+                console.log('>>> Authentication successful! Opening the pipeline.');
                 isAuthenticated = true;
                 
                 // Flush queued messages from Retell
                 while (retellMessageQueue.length > 0) {
-                    const queuedData = retellMessageQueue.shift();
-                    openclawWs.send(queuedData);
+                    openclawWs.send(retellMessageQueue.shift());
                 }
             }
-            return; // DO NOT FORWARD TO RETELL
+            return; // DROP: Do not send to Retell
         }
 
         // --- THE TRANSLATION LAYER ---
-        // Try to extract actual speech/text content from the OpenClaw payload
         let generatedText = null;
 
-        if (parsedMessage.choices && parsedMessage.choices.length > 0) {
-            generatedText = parsedMessage.choices[0].message?.content || parsedMessage.choices[0].delta?.content;
-        } else if (parsedMessage.response !== undefined) {
-            generatedText = parsedMessage.response;
-        } else if (parsedMessage.content !== undefined) {
-            generatedText = parsedMessage.content;
-        } else if (parsedMessage.text !== undefined) {
-            generatedText = parsedMessage.text;
+        // Hunt for the actual text in OpenClaw's payload
+        if (msg.choices && msg.choices.length > 0) {
+            generatedText = msg.choices[0].message?.content || msg.choices[0].delta?.content;
+        } else if (msg.response !== undefined) {
+            generatedText = msg.response;
+        } else if (msg.content !== undefined) {
+            generatedText = msg.content;
+        } else if (msg.text !== undefined) {
+            generatedText = msg.text;
         }
 
-        // Only forward to Retell if we actually extracted text
+        // ONLY forward to Retell if text was successfully found. 
+        // This is the steel trap that prevents the "content_complete not a boolean" crash.
         if (generatedText) {
             const retellResponse = {
                 response_id: currentResponseId,
                 content: generatedText,
-                content_complete: true, // Assuming full blocks. Set to false if streaming
+                content_complete: true, // Tell Retell the sentence is finished
                 end_call: false
             };
 
             if (retellWs.readyState === WebSocket.OPEN) {
                 retellWs.send(JSON.stringify(retellResponse));
-                console.log(`Translated and forwarded response to Retell: "${generatedText.substring(0, 50)}..."`);
+                console.log(`>>> Forwarded to Retell: "${generatedText.substring(0, 50)}..."`);
             }
         }
     });
@@ -123,28 +120,27 @@ wss.on('connection', (retellWs) => {
         }
     });
 
-    // Handle incoming messages from Retell AI
+    // --- HANDLE INCOMING RETELL AUDIO EVENTS ---
     retellWs.on('message', (data) => {
         const rawData = data.toString();
         
         try {
             const parsedData = JSON.parse(rawData);
-            
-            // Track the active response ID so we can properly route the answer back
+            // Grab the ID so Riley knows which sentence she is responding to
             if (parsedData.event === 'response_required') {
                 currentResponseId = parsedData.response_id;
             }
         } catch (e) {
-            // Ignore parse errors on incoming raw audio/events
+            // Ignore parse errors on raw audio chunks
         }
 
-        // Queue events if OpenClaw hasn't finished the challenge-response yet
+        // Queue events if OpenClaw is still doing the security handshake
         if (!isAuthenticated) {
             retellMessageQueue.push(data);
             return;
         }
 
-        // Forward to OpenClaw
+        // Forward safely to OpenClaw
         if (openclawWs.readyState === WebSocket.OPEN) {
             openclawWs.send(data);
         }
