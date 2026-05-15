@@ -3,11 +3,11 @@ const http = require('http');
 
 const PORT = process.env.PORT || 10000;
 
-// Render Health Check & Identity Proof
+// Render Health Check
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('VERIFIED: THE NUCLEAR SILENCER IS ACTIVE.'); 
+        res.end('VERIFIED: THE FINAL HANDSHAKE IS ACTIVE.'); 
     } else {
         res.writeHead(404);
         res.end();
@@ -28,11 +28,11 @@ wss.on('connection', (retellWs) => {
     const openclawWs = new WebSocket(wssUrl, {
         headers: { 
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Origin': 'https://openclaw.com'
+            'Origin': 'https://10092.sa6.moltly.ai'
         }
     });
 
-    // FUNCTION: The Handshake Disguise
+    // FUNCTION: The Handshake Disguise (Updated for Moltly v4)
     const sendHandshake = () => {
         console.log('>>> [AUTH] Sending Handshake...');
         openclawWs.send(JSON.stringify({
@@ -42,43 +42,46 @@ wss.on('connection', (retellWs) => {
             params: {
                 minProtocol: 4,
                 maxProtocol: 4,
-                client: { id: "webchat", platform: "web", version: "2026.4.27", mode: "operator" },
+                client: { 
+                    id: "openclaw-control-ui", // Matches the successful UI ID in your logs
+                    platform: "web", 
+                    version: "2026.4.27", 
+                    mode: "viewer"           // Required mode for this ID
+                },
                 auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
             }
         }));
     };
 
     openclawWs.on('open', () => {
-        console.log('>>> [OPENCLAW] Connected. Pre-authenticating...');
-        sendHandshake(); // Pre-emptive strike
+        console.log('>>> [OPENCLAW] Connected. Waiting for challenge...');
     });
 
     openclawWs.on('message', (data) => {
         const rawString = data.toString();
 
-        // --- THE NUCLEAR SILENCER ---
-        // If the raw text contains ANY system keywords, kill it immediately.
-        // This prevents Retell from seeing "challenge" and crashing.
+        // --- THE SILENCER ---
         if (
             rawString.includes("challenge") || 
-            rawString.includes("handshake") || 
+            rawString.includes("handshake-001") || 
             rawString.includes("heartbeat") || 
-            rawString.includes("system") ||
             rawString.includes("connect.status")
         ) {
-            console.log('>>> [SILENCED] Blocked system noise from Retell.');
+            console.log('>>> [SILENCED] Handshake/System message blocked.');
             
             try {
                 const msg = JSON.parse(rawString);
                 if (msg.event === 'connect.challenge') {
-                    sendHandshake(); // Respond to challenge if it appeared
+                    sendHandshake(); 
                 } else if (msg.type === 'res' && msg.id === 'handshake-001' && msg.ok) {
-                    console.log('>>> [SUCCESS] Auth Finalized.');
+                    console.log('>>> [SUCCESS] Auth Finalized. Bridge is open.');
                     isAuthenticated = true;
                     while (retellMessageQueue.length > 0) openclawWs.send(retellMessageQueue.shift());
+                } else if (msg.type === 'res' && msg.id === 'handshake-001' && !msg.ok) {
+                    console.error('>>> [FAIL] Handshake rejected:', JSON.stringify(msg.error));
                 }
             } catch (e) {}
-            return; // ABSOLUTE STOP. DO NOT PROCEED TO RETELL SENDING LOGIC.
+            return; 
         }
 
         // --- LLM TEXT TRANSLATION ---
@@ -127,9 +130,9 @@ wss.on('connection', (retellWs) => {
 
             if (isAuthenticated && openclawWs.readyState === WebSocket.OPEN) {
                 openclawWs.send(payloadStr);
-                console.log(`>>> [TALK] Sent: "${humanSpeech}"`);
+                console.log(`>>> [TALK] Sent Speech: "${humanSpeech}"`);
             } else {
-                console.log('>>> [QUEUE] Holding speech until auth finishes...');
+                console.log('>>> [QUEUE] Holding speech until auth...');
                 retellMessageQueue.push(payloadStr);
             }
         }
@@ -140,4 +143,4 @@ wss.on('connection', (retellWs) => {
     retellWs.on('close', () => openclawWs.readyState === WebSocket.OPEN && openclawWs.close());
 });
 
-server.listen(PORT, () => console.log(`Nuclear Silencer active on port ${PORT}`));
+server.listen(PORT, () => console.log(`Final Handshake active on port ${PORT}`));
