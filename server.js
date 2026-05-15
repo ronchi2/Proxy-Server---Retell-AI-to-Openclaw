@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 8080;
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('365Digital Proxy Server - Retell to OpenClaw is live.');
+        res.end('VERIFIED: This is the NEW server.');
     } else {
         res.writeHead(404);
         res.end();
