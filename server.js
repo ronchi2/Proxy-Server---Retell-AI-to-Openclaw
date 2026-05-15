@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 10000;
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('VERIFIED: THE V4 HANDSHAKE IS ACTIVE.'); 
+        res.end('VERIFIED: THE GATEWAY BRIDGE IS ACTIVE.'); 
     } else {
         res.writeHead(404);
         res.end();
@@ -26,13 +26,12 @@ wss.on('connection', (retellWs) => {
     
     const openclawWs = new WebSocket(wssUrl, {
         headers: { 
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Origin': 'https://10092.sa6.moltly.ai'
+            'User-Agent': 'OpenClaw-Backend/2026.4.27'
         }
     });
 
     const sendHandshake = () => {
-        console.log('>>> [AUTH] Sending v4 Handshake...');
+        console.log('>>> [AUTH] Sending Gateway-Client Handshake...');
         openclawWs.send(JSON.stringify({
             type: "req",
             id: "handshake-001",
@@ -41,10 +40,10 @@ wss.on('connection', (retellWs) => {
                 minProtocol: 4,
                 maxProtocol: 4,
                 client: { 
-                    id: "webchat", 
-                    platform: "web", 
+                    id: "gateway-client",
+                    platform: "linux",
                     version: "2026.4.27", 
-                    mode: "v4" // The specific allowed value for Moltly v4
+                    mode: "backend" 
                 },
                 auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
             }
@@ -86,10 +85,7 @@ wss.on('connection', (retellWs) => {
 
         if (generatedText && retellWs.readyState === WebSocket.OPEN) {
             retellWs.send(JSON.stringify({
-                response_id: currentResponseId, 
-                content: String(generatedText), 
-                content_complete: true, 
-                end_call: false
+                response_id: currentResponseId, content: String(generatedText), content_complete: true, end_call: false
             }));
         }
     });
@@ -105,12 +101,7 @@ wss.on('connection', (retellWs) => {
                 if (lastMsg.role === 'user') humanSpeech = lastMsg.content;
             }
             if (!humanSpeech) return;
-            const payloadStr = JSON.stringify({ 
-                type: "req", 
-                id: `msg-${Date.now()}`, 
-                method: "agent", 
-                params: { text: humanSpeech } 
-            });
+            const payloadStr = JSON.stringify({ type: "req", id: `msg-${Date.now()}`, method: "agent", params: { text: humanSpeech } });
             if (isAuthenticated && openclawWs.readyState === WebSocket.OPEN) {
                 openclawWs.send(payloadStr);
             } else {
@@ -124,4 +115,4 @@ wss.on('connection', (retellWs) => {
     retellWs.on('close', () => openclawWs.readyState === WebSocket.OPEN && openclawWs.close());
 });
 
-server.listen(PORT, () => console.log(`v4 Handshake active on port ${PORT}`));
+server.listen(PORT, () => console.log(`Gateway Bridge active on port ${PORT}`));
