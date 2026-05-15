@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 10000;
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('VERIFIED: THE FINAL HANDSHAKE IS ACTIVE.'); 
+        res.end('VERIFIED: THE MASTER KEY IS ACTIVE.'); 
     } else {
         res.writeHead(404);
         res.end();
@@ -25,16 +25,16 @@ wss.on('connection', (retellWs) => {
 
     const wssUrl = (process.env.OPENCLAW_WSS_URL || '').trim();
     
+    // Using the CLI User-Agent to match the identity
     const openclawWs = new WebSocket(wssUrl, {
         headers: { 
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Origin': 'https://10092.sa6.moltly.ai'
+            'User-Agent': 'OpenClaw-CLI/2026.4.27 (terminal; operator)'
         }
     });
 
-    // FUNCTION: The Handshake Disguise (Updated for Moltly v4)
+    // FUNCTION: The Universal CLI Handshake
     const sendHandshake = () => {
-        console.log('>>> [AUTH] Sending Handshake...');
+        console.log('>>> [AUTH] Sending Universal CLI Handshake...');
         openclawWs.send(JSON.stringify({
             type: "req",
             id: "handshake-001",
@@ -43,10 +43,10 @@ wss.on('connection', (retellWs) => {
                 minProtocol: 4,
                 maxProtocol: 4,
                 client: { 
-                    id: "openclaw-control-ui", // Matches the successful UI ID in your logs
-                    platform: "web", 
+                    id: "openclaw-cli",      // The master ID for all gateways
+                    platform: "terminal",    // CLI always uses terminal
                     version: "2026.4.27", 
-                    mode: "viewer"           // Required mode for this ID
+                    mode: "operator"         // The standard 'allowed value' for CLI
                 },
                 auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
             }
@@ -67,7 +67,7 @@ wss.on('connection', (retellWs) => {
             rawString.includes("heartbeat") || 
             rawString.includes("connect.status")
         ) {
-            console.log('>>> [SILENCED] Handshake/System message blocked.');
+            console.log('>>> [SILENCED] System message blocked.');
             
             try {
                 const msg = JSON.parse(rawString);
@@ -78,7 +78,7 @@ wss.on('connection', (retellWs) => {
                     isAuthenticated = true;
                     while (retellMessageQueue.length > 0) openclawWs.send(retellMessageQueue.shift());
                 } else if (msg.type === 'res' && msg.id === 'handshake-001' && !msg.ok) {
-                    console.error('>>> [FAIL] Handshake rejected:', JSON.stringify(msg.error));
+                    console.error('>>> [FAIL] Rejected:', JSON.stringify(msg.error));
                 }
             } catch (e) {}
             return; 
@@ -130,9 +130,8 @@ wss.on('connection', (retellWs) => {
 
             if (isAuthenticated && openclawWs.readyState === WebSocket.OPEN) {
                 openclawWs.send(payloadStr);
-                console.log(`>>> [TALK] Sent Speech: "${humanSpeech}"`);
+                console.log(`>>> [TALK] Sent: "${humanSpeech}"`);
             } else {
-                console.log('>>> [QUEUE] Holding speech until auth...');
                 retellMessageQueue.push(payloadStr);
             }
         }
@@ -143,4 +142,4 @@ wss.on('connection', (retellWs) => {
     retellWs.on('close', () => openclawWs.readyState === WebSocket.OPEN && openclawWs.close());
 });
 
-server.listen(PORT, () => console.log(`Final Handshake active on port ${PORT}`));
+server.listen(PORT, () => console.log(`Master Key active on port ${PORT}`));
