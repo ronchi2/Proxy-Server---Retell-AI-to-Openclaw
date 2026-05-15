@@ -1,12 +1,13 @@
 const { WebSocketServer, WebSocket } = require('ws');
 const http = require('http');
 
-const PORT = process.env.PORT || 10000; // Updated to match Render's preference
+const PORT = process.env.PORT || 10000;
 
+// Render Health Check & Identity Proof
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('VERIFIED: THE IRON SHIELD IS ACTIVE.'); 
+        res.end('VERIFIED: THE NUCLEAR SILENCER IS ACTIVE.'); 
     } else {
         res.writeHead(404);
         res.end();
@@ -31,51 +32,62 @@ wss.on('connection', (retellWs) => {
         }
     });
 
-    openclawWs.on('open', () => console.log('>>> [OPENCLAW] Connected. Waiting for challenge...'));
+    // FUNCTION: The Handshake Disguise
+    const sendHandshake = () => {
+        console.log('>>> [AUTH] Sending Handshake...');
+        openclawWs.send(JSON.stringify({
+            type: "req",
+            id: "handshake-001",
+            method: "connect", 
+            params: {
+                minProtocol: 4,
+                maxProtocol: 4,
+                client: { id: "webchat", platform: "web", version: "2026.4.27", mode: "operator" },
+                auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
+            }
+        }));
+    };
+
+    openclawWs.on('open', () => {
+        console.log('>>> [OPENCLAW] Connected. Pre-authenticating...');
+        sendHandshake(); // Pre-emptive strike
+    });
 
     openclawWs.on('message', (data) => {
-        const messageString = data.toString();
-        let msg;
-        try { msg = JSON.parse(messageString); } catch (e) { return; }
+        const rawString = data.toString();
 
-        // --- THE IRON SHIELD: SYSTEM EVENTS STOP HERE ---
-        const isSystemEvent = (
-            msg.event === 'connect.challenge' || 
-            msg.event === 'heartbeat' || 
-            msg.event === 'connect.status' ||
-            (msg.type === 'res' && msg.id === 'handshake-001') ||
-            msg.type === 'system'
-        );
-
-        if (isSystemEvent) {
-            if (msg.event === 'connect.challenge') {
-                console.log('>>> [AUTH] Answering Challenge...');
-                openclawWs.send(JSON.stringify({
-                    type: "req",
-                    id: "handshake-001",
-                    method: "connect", 
-                    params: {
-                        minProtocol: 4,
-                        maxProtocol: 4,
-                        client: { id: "webchat", platform: "web", version: "2026.4.27", mode: "operator" },
-                        auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
-                    }
-                }));
-            } else if (msg.type === 'res' && msg.id === 'handshake-001') {
-                if (msg.ok) {
-                    console.log('>>> [SUCCESS] Auth Passed.');
+        // --- THE NUCLEAR SILENCER ---
+        // If the raw text contains ANY system keywords, kill it immediately.
+        // This prevents Retell from seeing "challenge" and crashing.
+        if (
+            rawString.includes("challenge") || 
+            rawString.includes("handshake") || 
+            rawString.includes("heartbeat") || 
+            rawString.includes("system") ||
+            rawString.includes("connect.status")
+        ) {
+            console.log('>>> [SILENCED] Blocked system noise from Retell.');
+            
+            try {
+                const msg = JSON.parse(rawString);
+                if (msg.event === 'connect.challenge') {
+                    sendHandshake(); // Respond to challenge if it appeared
+                } else if (msg.type === 'res' && msg.id === 'handshake-001' && msg.ok) {
+                    console.log('>>> [SUCCESS] Auth Finalized.');
                     isAuthenticated = true;
                     while (retellMessageQueue.length > 0) openclawWs.send(retellMessageQueue.shift());
-                } else {
-                    console.error('>>> [FAIL] Auth Error:', msg.error);
                 }
-            }
-            return; // EXIT IMMEDIATELY. DO NOT PASS TO RETELL.
+            } catch (e) {}
+            return; // ABSOLUTE STOP. DO NOT PROCEED TO RETELL SENDING LOGIC.
         }
 
-        // --- ONLY LLM TEXT PASSES THIS POINT ---
+        // --- LLM TEXT TRANSLATION ---
+        let msg;
+        try { msg = JSON.parse(rawString); } catch (e) { return; }
+
         let generatedText = null;
         const payload = msg.payload || msg;
+        
         if (payload.choices?.[0]?.delta?.content) {
             generatedText = payload.choices[0].delta.content;
         } else if (payload.content || payload.text) {
@@ -117,6 +129,7 @@ wss.on('connection', (retellWs) => {
                 openclawWs.send(payloadStr);
                 console.log(`>>> [TALK] Sent: "${humanSpeech}"`);
             } else {
+                console.log('>>> [QUEUE] Holding speech until auth finishes...');
                 retellMessageQueue.push(payloadStr);
             }
         }
@@ -127,4 +140,4 @@ wss.on('connection', (retellWs) => {
     retellWs.on('close', () => openclawWs.readyState === WebSocket.OPEN && openclawWs.close());
 });
 
-server.listen(PORT, () => console.log(`Iron Shield active on port ${PORT}`));
+server.listen(PORT, () => console.log(`Nuclear Silencer active on port ${PORT}`));
