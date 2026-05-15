@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 10000;
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('VERIFIED: THE GATEWAY BRIDGE IS ACTIVE.'); 
+        res.end('VERIFIED: THE V3 LEGACY BRIDGE IS ACTIVE.'); 
     } else {
         res.writeHead(404);
         res.end();
@@ -26,24 +26,24 @@ wss.on('connection', (retellWs) => {
     
     const openclawWs = new WebSocket(wssUrl, {
         headers: { 
-            'User-Agent': 'OpenClaw-Backend/2026.4.27'
+            'User-Agent': 'OpenClaw-CLI/2026.4.27'
         }
     });
 
     const sendHandshake = () => {
-        console.log('>>> [AUTH] Sending Gateway-Client Handshake...');
+        console.log('>>> [AUTH] Sending Protocol v3 Handshake...');
         openclawWs.send(JSON.stringify({
             type: "req",
             id: "handshake-001",
             method: "connect", 
             params: {
-                minProtocol: 4,
-                maxProtocol: 4,
+                minProtocol: 3,
+                maxProtocol: 3,
                 client: { 
-                    id: "gateway-client",
-                    platform: "linux",
+                    id: "openclaw-cli",
                     version: "2026.4.27", 
-                    mode: "backend" 
+                    platform: "linux",
+                    mode: "node" 
                 },
                 auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
             }
@@ -74,7 +74,6 @@ wss.on('connection', (retellWs) => {
 
         let msg;
         try { msg = JSON.parse(rawString); } catch (e) { return; }
-        
         let generatedText = null;
         const payload = msg.payload || msg;
         if (payload.choices?.[0]?.delta?.content) {
@@ -115,4 +114,4 @@ wss.on('connection', (retellWs) => {
     retellWs.on('close', () => openclawWs.readyState === WebSocket.OPEN && openclawWs.close());
 });
 
-server.listen(PORT, () => console.log(`Gateway Bridge active on port ${PORT}`));
+server.listen(PORT, () => console.log(`V3 Legacy Bridge active on port ${PORT}`));
