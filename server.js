@@ -50,15 +50,14 @@ wss.on('connection', (retellWs) => {
                 id: "handshake-001",
                 method: "connect", 
                 params: {
-                    minProtocol: 3,
+                    minProtocol: 4,          // Moltly requires v4
                     maxProtocol: 4,
                     client: { 
-                        id: "cli",             // Disguise proxy as the official CLI app
-                        platform: "macos",     // Use an officially recognized platform
-                        version: "1.2.3",      // Standard version string
-                        mode: "operator"       // Required mode for two-way chatting
+                        id: "webchat",       // 'webchat' is the most stable ID for Moltly
+                        platform: "web", 
+                        version: "2026.4.27", // Matches the version in your logs
+                        mode: "operator"
                     },
-                    role: "operator",          // Declare our authorization role
                     auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
                 }
             };
