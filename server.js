@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 8080;
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('VERIFIED: This is the NEW server.'); // Keeping this for proof
+        res.end('VERIFIED: ATTEMPT 10'); // Keeping this for proof
     } else {
         res.writeHead(404);
         res.end();
