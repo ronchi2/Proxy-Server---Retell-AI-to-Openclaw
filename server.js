@@ -3,11 +3,10 @@ const http = require('http');
 
 const PORT = process.env.PORT || 10000;
 
-// Render Health Check
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('VERIFIED: THE MASTER KEY IS ACTIVE.'); 
+        res.end('VERIFIED: THE IRON NODE IS ACTIVE.'); 
     } else {
         res.writeHead(404);
         res.end();
@@ -25,16 +24,14 @@ wss.on('connection', (retellWs) => {
 
     const wssUrl = (process.env.OPENCLAW_WSS_URL || '').trim();
     
-    // Using the CLI User-Agent to match the identity
     const openclawWs = new WebSocket(wssUrl, {
         headers: { 
-            'User-Agent': 'OpenClaw-CLI/2026.4.27 (terminal; operator)'
+            'User-Agent': 'OpenClaw-Node/2026.4.27'
         }
     });
 
-    // FUNCTION: The Universal CLI Handshake
     const sendHandshake = () => {
-        console.log('>>> [AUTH] Sending Universal CLI Handshake...');
+        console.log('>>> [AUTH] Sending Iron Node Handshake...');
         openclawWs.send(JSON.stringify({
             type: "req",
             id: "handshake-001",
@@ -43,32 +40,23 @@ wss.on('connection', (retellWs) => {
                 minProtocol: 4,
                 maxProtocol: 4,
                 client: { 
-                    id: "openclaw-cli",      // The master ID for all gateways
-                    platform: "terminal",    // CLI always uses terminal
+                    id: "openclaw-node",     // Official ID for a remote server node
+                    platform: "linux",       // Render runs on Linux
                     version: "2026.4.27", 
-                    mode: "operator"         // The standard 'allowed value' for CLI
+                    mode: "node"             // The standard mode for a proxy server
                 },
                 auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
             }
         }));
     };
 
-    openclawWs.on('open', () => {
-        console.log('>>> [OPENCLAW] Connected. Waiting for challenge...');
-    });
+    openclawWs.on('open', () => console.log('>>> [OPENCLAW] Connected. Waiting for challenge...'));
 
     openclawWs.on('message', (data) => {
         const rawString = data.toString();
 
-        // --- THE SILENCER ---
-        if (
-            rawString.includes("challenge") || 
-            rawString.includes("handshake-001") || 
-            rawString.includes("heartbeat") || 
-            rawString.includes("connect.status")
-        ) {
+        if (rawString.includes("challenge") || rawString.includes("handshake") || rawString.includes("heartbeat") || rawString.includes("connect.status")) {
             console.log('>>> [SILENCED] System message blocked.');
-            
             try {
                 const msg = JSON.parse(rawString);
                 if (msg.event === 'connect.challenge') {
@@ -84,13 +72,10 @@ wss.on('connection', (retellWs) => {
             return; 
         }
 
-        // --- LLM TEXT TRANSLATION ---
         let msg;
         try { msg = JSON.parse(rawString); } catch (e) { return; }
-
         let generatedText = null;
         const payload = msg.payload || msg;
-        
         if (payload.choices?.[0]?.delta?.content) {
             generatedText = payload.choices[0].delta.content;
         } else if (payload.content || payload.text) {
@@ -99,10 +84,7 @@ wss.on('connection', (retellWs) => {
 
         if (generatedText && retellWs.readyState === WebSocket.OPEN) {
             retellWs.send(JSON.stringify({
-                response_id: currentResponseId,
-                content: String(generatedText),
-                content_complete: true,
-                end_call: false
+                response_id: currentResponseId, content: String(generatedText), content_complete: true, end_call: false
             }));
         }
     });
@@ -110,7 +92,6 @@ wss.on('connection', (retellWs) => {
     retellWs.on('message', (data) => {
         let parsedData;
         try { parsedData = JSON.parse(data.toString()); } catch (e) { return; }
-
         if (parsedData.event === 'response_required') {
             currentResponseId = parsedData.response_id;
             let humanSpeech = "";
@@ -118,19 +99,10 @@ wss.on('connection', (retellWs) => {
                 const lastMsg = parsedData.transcript[parsedData.transcript.length - 1];
                 if (lastMsg.role === 'user') humanSpeech = lastMsg.content;
             }
-
             if (!humanSpeech) return;
-
-            const payloadStr = JSON.stringify({
-                type: "req",
-                id: `msg-${Date.now()}`,
-                method: "agent",
-                params: { text: humanSpeech }
-            });
-
+            const payloadStr = JSON.stringify({ type: "req", id: `msg-${Date.now()}`, method: "agent", params: { text: humanSpeech } });
             if (isAuthenticated && openclawWs.readyState === WebSocket.OPEN) {
                 openclawWs.send(payloadStr);
-                console.log(`>>> [TALK] Sent: "${humanSpeech}"`);
             } else {
                 retellMessageQueue.push(payloadStr);
             }
@@ -142,4 +114,4 @@ wss.on('connection', (retellWs) => {
     retellWs.on('close', () => openclawWs.readyState === WebSocket.OPEN && openclawWs.close());
 });
 
-server.listen(PORT, () => console.log(`Master Key active on port ${PORT}`));
+server.listen(PORT, () => console.log(`Iron Node active on port ${PORT}`));
