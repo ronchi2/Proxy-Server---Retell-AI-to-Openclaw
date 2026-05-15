@@ -3,10 +3,11 @@ const http = require('http');
 
 const PORT = process.env.PORT || 10000;
 
+// Render Health Check
 const server = http.createServer((req, res) => {
     if (req.url === '/health' || req.url === '/') {
         res.writeHead(200);
-        res.end('VERIFIED: THE V3 LEGACY BRIDGE IS ACTIVE.'); 
+        res.end('VERIFIED: THE V3 HYBRID BRIDGE IS ACTIVE.'); 
     } else {
         res.writeHead(404);
         res.end();
@@ -22,14 +23,17 @@ wss.on('connection', (retellWs) => {
     let retellMessageQueue = [];
     let currentResponseId = 0; 
 
+    // Using the whitelisted WSS URL from your environment
     const wssUrl = (process.env.OPENCLAW_WSS_URL || '').trim();
     
     const openclawWs = new WebSocket(wssUrl, {
         headers: { 
-            'User-Agent': 'OpenClaw-CLI/2026.4.27'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Origin': 'https://10092.sa6.moltly.ai'
         }
     });
 
+    // HANDSHAKE: Updated to Protocol 3 with 'webchat' identity
     const sendHandshake = () => {
         console.log('>>> [AUTH] Sending Protocol v3 Handshake...');
         openclawWs.send(JSON.stringify({
@@ -40,10 +44,10 @@ wss.on('connection', (retellWs) => {
                 minProtocol: 3,
                 maxProtocol: 3,
                 client: { 
-                    id: "openclaw-cli",
+                    id: "webchat", 
                     version: "2026.4.27", 
-                    platform: "linux",
-                    mode: "node" 
+                    platform: "web", 
+                    mode: "v3" 
                 },
                 auth: { token: (process.env.MYCLAW_API_KEY || '').trim() }
             }
@@ -54,28 +58,35 @@ wss.on('connection', (retellWs) => {
 
     openclawWs.on('message', (data) => {
         const rawString = data.toString();
+        let msg;
+        try { msg = JSON.parse(rawString); } catch (e) { return; }
 
-        if (rawString.includes("challenge") || rawString.includes("handshake") || rawString.includes("heartbeat") || rawString.includes("connect.status")) {
-            console.log('>>> [SILENCED] System message blocked.');
-            try {
-                const msg = JSON.parse(rawString);
-                if (msg.event === 'connect.challenge') {
-                    sendHandshake(); 
-                } else if (msg.type === 'res' && msg.id === 'handshake-001' && msg.ok) {
+        // --- THE SAFE SILENCER (Antigravity Logic) ---
+        if (
+            msg.event === 'connect.challenge' || 
+            msg.event === 'heartbeat' || 
+            msg.event === 'connect.status' || 
+            msg.type === 'system' ||
+            (msg.type === 'res' && msg.id === 'handshake-001')
+        ) {
+            if (msg.event === 'connect.challenge') {
+                sendHandshake(); 
+            } else if (msg.type === 'res' && msg.id === 'handshake-001') {
+                if (msg.ok) {
                     console.log('>>> [SUCCESS] Auth Finalized. Bridge is open.');
                     isAuthenticated = true;
                     while (retellMessageQueue.length > 0) openclawWs.send(retellMessageQueue.shift());
-                } else if (msg.type === 'res' && msg.id === 'handshake-001' && !msg.ok) {
+                } else {
                     console.error('>>> [FAIL] Rejected:', JSON.stringify(msg.error));
                 }
-            } catch (e) {}
-            return; 
+            }
+            return; // STOP: Do not forward system noise to Retell
         }
 
-        let msg;
-        try { msg = JSON.parse(rawString); } catch (e) { return; }
+        // --- LLM TEXT TRANSLATION ---
         let generatedText = null;
         const payload = msg.payload || msg;
+        
         if (payload.choices?.[0]?.delta?.content) {
             generatedText = payload.choices[0].delta.content;
         } else if (payload.content || payload.text) {
@@ -103,6 +114,7 @@ wss.on('connection', (retellWs) => {
             const payloadStr = JSON.stringify({ type: "req", id: `msg-${Date.now()}`, method: "agent", params: { text: humanSpeech } });
             if (isAuthenticated && openclawWs.readyState === WebSocket.OPEN) {
                 openclawWs.send(payloadStr);
+                console.log(`>>> [TALK] Sent: "${humanSpeech}"`);
             } else {
                 retellMessageQueue.push(payloadStr);
             }
@@ -114,4 +126,4 @@ wss.on('connection', (retellWs) => {
     retellWs.on('close', () => openclawWs.readyState === WebSocket.OPEN && openclawWs.close());
 });
 
-server.listen(PORT, () => console.log(`V3 Legacy Bridge active on port ${PORT}`));
+server.listen(PORT, () => console.log(`V3 Hybrid Bridge active on port ${PORT}`));
